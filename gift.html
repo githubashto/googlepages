@@ -1,0 +1,15 @@
+<script src = "GiftWrapper.js"> </script>
+<div style="font-family: verdana; font-size: 12; padding: 3px">
+	<div id = "giftDiv" style= "border : solid"></div>
+	<br>
+	<input style="padding: 3px;" id = "giftUrl" value = "http://ecx.images-amazon.com/images/I/51yMGu4HA2L._AA240_.jpg">
+	<a style="border: 1px solid; padding: 3px; text-decoration: none;" href = "javascript:g.setGift(document.getElementById('giftUrl').value)" >Place Gift</a>
+	<br><br>
+	<a style="border: 1px solid; padding: 3px; text-decoration: none;" href = "javascript:g.openGift();">Open Gift</a>
+	<a style="border: 1px solid; padding: 3px; text-decoration: none; " href = "javascript:g.wrapGift();">Close Gift</a>
+	<script>
+		var g = new GiftWrapper("giftDiv");
+		g.setGift(document.getElementById('giftUrl').value);
+	</script>
+
+</div>

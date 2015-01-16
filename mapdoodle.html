@@ -1,0 +1,2158 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+	<head>
+		<title>
+			Canvas Painter
+		</title><!--
+	Copyright (c) 2005, 2006 Rafael Robayna
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	Additional Contributions by: Morris Johns
+-->
+
+
+<script type="text/javascript">
+/*
+	Base, version 1.0.1
+	Copyright 2006, Dean Edwards
+	License: http://creativecommons.org/licenses/LGPL/2.1/
+*/
+function Base() {
+};
+Base.version = "1.0.1";
+Base.prototype = {
+	extend: function(source, value) {
+		var extend = Base.prototype.extend;
+		if (arguments.length == 2) {
+			var ancestor = this[source];
+			// overriding?
+			if ((ancestor instanceof Function) && (value instanceof Function) &&
+				ancestor.valueOf() != value.valueOf() && /\binherit\b/.test(value)) {
+				var method = value;
+				value = function() {
+					var previous = this.inherit;
+					this.inherit = ancestor;
+					var returnValue = method.apply(this, arguments);
+					this.inherit = previous;
+					return returnValue;
+				};
+				// point to the underlying method
+				value.valueOf = function() {
+					return method;
+				};
+				value.toString = function() {
+					return String(method);
+				};
+			}
+			return (this[source] = value);
+		} else if (source) {
+			var _prototype = {toSource: null};
+			// do the "toString" and other methods manually
+			var _protected = ["toString", "valueOf"];
+			// if we are prototyping then include the constructor
+			if (Base._prototyping) _protected[2] = "constructor";
+			for (var i = 0; (name = _protected[i]); i++) {
+				if (source[name] != _prototype[name]) {
+					extend.call(this, name, source[name]);
+				}
+			}
+			// copy each of the source object's properties to this object
+			for (var name in source) {
+				if (!_prototype[name]) {
+					extend.call(this, name, source[name]);
+				}
+			}
+		}
+		return this;
+	},
+
+	inherit: function() {
+		// call this method from any other method to invoke that method's ancestor
+	}
+};
+
+Base.extend = function(_instance, _static) {	
+	var extend = Base.prototype.extend;
+	if (!_instance) _instance = {};
+	// create the constructor
+	if (_instance.constructor == Object) {
+		_instance.constructor = new Function;
+	}
+	// build the prototype
+	Base._prototyping = true;
+	var _prototype = new this;
+	extend.call(_prototype, _instance);
+	var constructor = _prototype.constructor;
+	_prototype.constructor = this;
+	delete Base._prototyping;
+	// create the wrapper for the constructor function
+	var klass = function() {
+		if (!Base._prototyping) constructor.apply(this, arguments);
+		this.constructor = klass;
+	};
+	klass.prototype = _prototype;
+	// build the class interface
+	klass.extend = this.extend;
+	klass.toString = function() {
+		return String(constructor);
+	};
+	extend.call(klass, _static);
+	// support singletons
+	var object = constructor ? klass : _prototype;
+	// class initialisation
+	if (object.init instanceof Function) object.init();
+	return object;
+};
+
+/*  Prototype JavaScript framework, version 1.4.0
+ *  (c) 2005 Sam Stephenson <sam@conio.net>
+ *
+ *  Prototype is freely distributable under the terms of an MIT-style license.
+ *  For details, see the Prototype web site: http://prototype.conio.net/
+ *
+/*--------------------------------------------------------------------------*/
+Function.prototype.bindAsEventListener = function(object) {
+  var __method = this;
+  return function(event) {
+    return __method.call(object, event || window.event);
+  }
+}
+</script>
+
+<script type="text/javascript" >
+// Copyright 2006 Google Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// TODO: Patterns
+// TODO: Radial gradient
+// TODO: Clipping paths
+// TODO: Coordsize
+// TODO: Painting mode
+// TODO: Optimize
+// TODO: canvas width/height sets content size in moz, border size in ie
+// TODO: Painting outside the canvas should not be allowed
+
+// only add this code if we do not already have a canvas implementation
+if (!window.CanvasRenderingContext2D) {
+
+(function () {
+
+  var G_vmlCanvasManager_ = {
+    init: function (opt_doc) {
+      var doc = opt_doc || document;
+      if (/MSIE/.test(navigator.userAgent) && !window.opera) {
+        var self = this;
+        doc.attachEvent("onreadystatechange", function () {
+          self.init_(doc);
+        });
+      }
+    },
+
+    init_: function (doc, e) {
+      if (doc.readyState == "complete") {
+        // create xmlns
+        if (!doc.namespaces["g_vml_"]) {
+          doc.namespaces.add("g_vml_", "urn:schemas-microsoft-com:vml");
+        }
+
+        // setup default css
+        var ss = doc.createStyleSheet();
+        ss.cssText = "canvas{display:inline-block;overflow:hidden;" +
+            "text-align:left;}" +
+            "canvas *{behavior:url(#default#VML)}";
+
+        // find all canvas elements
+        var els = doc.getElementsByTagName("canvas");
+        for (var i = 0; i < els.length; i++) {
+          if (!els[i].getContext) {
+            this.initElement(els[i]);
+          }
+        }
+      }
+    },
+
+    fixElement_: function (el) {
+      // in IE before version 5.5 we would need to add HTML: to the tag name
+      // but we do not care about IE before version 6
+      var outerHTML = el.outerHTML;
+      var newEl = document.createElement(outerHTML);
+      // if the tag is still open IE has created the children as siblings and
+      // it has also created a tag with the name "/FOO"
+      if (outerHTML.slice(-2) != "/>") {
+        var tagName = "/" + el.tagName;
+        var ns;
+        // remove content
+        while ((ns = el.nextSibling) && ns.tagName != tagName) {
+          ns.removeNode();
+        }
+        // remove the incorrect closing tag
+        if (ns) {
+          ns.removeNode();
+        }
+      }
+      el.parentNode.replaceChild(newEl, el);
+      return newEl;
+    },
+
+    /**
+     * Public initializes a canvas element so that it can be used as canvas
+     * element from now on. This is called automatically before the page is
+     * loaded but if you are creating elements using createElement yuo need to
+     * make sure this is called on the element.
+     * @param el {HTMLElement} The canvas element to initialize.
+     */
+    initElement: function (el) {
+      el = this.fixElement_(el);
+      el.getContext = function () {
+        if (this.context_) {
+          return this.context_;
+        }
+        return (this.context_ = new CanvasRenderingContext2D_(this));
+      };
+
+      var self = this; //bind
+      el.attachEvent("onpropertychange", function (e) {
+        // we need to watch changes to width and height
+        switch (e.propertyName) {
+          case "width":
+          case "height":
+            // coord size changed?
+            break;
+        }
+      });
+
+      // if style.height is set
+
+      var attrs = el.attributes;
+      if (attrs.width && attrs.width.specified) {
+        // TODO: use runtimeStyle and coordsize
+        // el.getContext().setWidth_(attrs.width.nodeValue);
+        el.style.width = attrs.width.nodeValue + "px";
+      }
+      if (attrs.height && attrs.height.specified) {
+        // TODO: use runtimeStyle and coordsize
+        // el.getContext().setHeight_(attrs.height.nodeValue);
+        el.style.height = attrs.height.nodeValue + "px";
+      }
+      //el.getContext().setCoordsize_()
+    }
+  };
+
+  G_vmlCanvasManager_.init();
+
+  // precompute "00" to "FF"
+  var dec2hex = [];
+  for (var i = 0; i < 16; i++) {
+    for (var j = 0; j < 16; j++) {
+      dec2hex[i * 16 + j] = i.toString(16) + j.toString(16);
+    }
+  }
+
+  function createMatrixIdentity() {
+    return [
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1]
+    ];
+  }
+
+  function matrixMultiply(m1, m2) {
+    var result = createMatrixIdentity();
+
+    for (var x = 0; x < 3; x++) {
+      for (var y = 0; y < 3; y++) {
+        var sum = 0;
+
+        for (var z = 0; z < 3; z++) {
+          sum += m1[x][z] * m2[z][y];
+        }
+
+        result[x][y] = sum;
+      }
+    }
+    return result;
+  }
+
+  function copyState(o1, o2) {
+    o2.fillStyle     = o1.fillStyle;
+    o2.lineCap       = o1.lineCap;
+    o2.lineJoin      = o1.lineJoin;
+    o2.lineWidth     = o1.lineWidth;
+    o2.miterLimit    = o1.miterLimit;
+    o2.shadowBlur    = o1.shadowBlur;
+    o2.shadowColor   = o1.shadowColor;
+    o2.shadowOffsetX = o1.shadowOffsetX;
+    o2.shadowOffsetY = o1.shadowOffsetY;
+    o2.strokeStyle   = o1.strokeStyle;
+  }
+
+  function processStyle(styleString) {
+    var str, alpha = 1;
+
+    styleString = String(styleString);
+    if (styleString.substring(0, 3) == "rgb") {
+      var start = styleString.indexOf("(", 3);
+      var end = styleString.indexOf(")", start + 1);
+      var guts = styleString.substring(start + 1, end).split(",");
+
+      str = "#";
+      for (var i = 0; i < 3; i++) {
+        str += dec2hex[parseInt(guts[i])];
+      }
+
+      if ((guts.length == 4) && (styleString.substr(3, 1) == "a")) {
+        alpha = guts[3];
+      }
+    } else {
+      str = styleString;
+    }
+
+    return [str, alpha];
+  }
+
+  function processLineCap(lineCap) {
+    switch (lineCap) {
+      case "butt":
+        return "flat";
+      case "round":
+        return "round";
+      case "square":
+      default:
+        return "square";
+    }
+  }
+
+  /**
+   * This class implements CanvasRenderingContext2D interface as described by
+   * the WHATWG.
+   * @param surfaceElement {HTMLElement} The element that the 2D context should
+   * be associated with
+   */
+   function CanvasRenderingContext2D_(surfaceElement) {
+    this.m_ = createMatrixIdentity();
+    this.element_ = surfaceElement;
+
+    this.mStack_ = [];
+    this.aStack_ = [];
+    this.currentPath_ = [];
+
+    // Canvas context properties
+    this.strokeStyle = "#000";
+    this.fillStyle = "#ccc";
+
+    this.lineWidth = 1;
+    this.lineJoin = "miter";
+    this.lineCap = "butt";
+    this.miterLimit = 10;
+    this.globalAlpha = 1;
+  };
+
+  var contextPrototype = CanvasRenderingContext2D_.prototype;
+  contextPrototype.clearRect = function() {
+    this.element_.innerHTML = "";
+    this.currentPath_ = [];
+  };
+
+  contextPrototype.beginPath = function() {
+    // TODO: Branch current matrix so that save/restore has no effect
+    //       as per safari docs.
+
+    this.currentPath_ = [];
+  };
+
+  contextPrototype.moveTo = function(aX, aY) {
+    this.currentPath_.push({type: "moveTo", x: aX, y: aY});
+  };
+
+  contextPrototype.lineTo = function(aX, aY) {
+    this.currentPath_.push({type: "lineTo", x: aX, y: aY});
+  };
+
+  contextPrototype.bezierCurveTo = function(aCP1x, aCP1y,
+                                            aCP2x, aCP2y,
+                                            aX, aY) {
+    this.currentPath_.push({type: "bezierCurveTo",
+                           cp1x: aCP1x,
+                           cp1y: aCP1y,
+                           cp2x: aCP2x,
+                           cp2y: aCP2y,
+                           x: aX,
+                           y: aY});
+  };
+
+  contextPrototype.quadraticCurveTo = function(aCPx, aCPy, aX, aY) {
+    // VML's qb produces different output to Firefox's
+    // FF's behaviour seems to have changed in 1.5.0.1, check this
+    this.bezierCurveTo(aCPx, aCPy, aCPx, aCPy, aX, aY);
+  };
+
+  contextPrototype.arc = function(aX, aY, aRadius,
+                                  aStartAngle, aEndAngle, aClockwise) {
+    if (!aClockwise) {
+      var t = aStartAngle;
+      aStartAngle = aEndAngle;
+      aEndAngle = t;
+    }
+
+    var xStart = aX + (Math.cos(aStartAngle) * aRadius);
+	var yStart = aY + Math.round(Math.sin(aStartAngle) * aRadius);
+
+    var xEnd = aX + (Math.cos(aEndAngle) * aRadius);
+	var yEnd = aY + Math.round(Math.sin(aEndAngle) * aRadius);
+
+    this.currentPath_.push({type: "arc",
+                           x: aX,
+                           y: aY,
+                           radius: aRadius,
+                           xStart: xStart,
+                           yStart: yStart,
+                           xEnd: xEnd,
+                           yEnd: yEnd});
+
+  };
+
+  contextPrototype.rect = function(aX, aY, aWidth, aHeight) {
+    this.moveTo(aX, aY);
+    this.lineTo(aX + aWidth, aY);
+    this.lineTo(aX + aWidth, aY + aHeight);
+    this.lineTo(aX, aY + aHeight);
+    this.closePath();
+  };
+
+  contextPrototype.strokeRect = function(aX, aY, aWidth, aHeight) {
+    // Will destroy any existing path (same as FF behaviour)
+    this.beginPath();
+    this.moveTo(aX, aY);
+    this.lineTo(aX + aWidth, aY);
+    this.lineTo(aX + aWidth, aY + aHeight);
+    this.lineTo(aX, aY + aHeight);
+    this.closePath();
+    this.stroke();
+  };
+
+  contextPrototype.fillRect = function(aX, aY, aWidth, aHeight) {
+    // Will destroy any existing path (same as FF behaviour)
+    this.beginPath();
+    this.moveTo(aX, aY);
+    this.lineTo(aX + aWidth, aY);
+    this.lineTo(aX + aWidth, aY + aHeight);
+    this.lineTo(aX, aY + aHeight);
+    this.closePath();
+    this.fill();
+  };
+
+  contextPrototype.createLinearGradient = function(aX0, aY0, aX1, aY1) {
+    var gradient = new CanvasGradient_("gradient");
+    return gradient;
+  };
+
+  contextPrototype.createRadialGradient = function(aX0, aY0,
+                                                   aR0, aX1,
+                                                   aY1, aR1) {
+    var gradient = new CanvasGradient_("gradientradial");
+    gradient.radius1_ = aR0;
+    gradient.radius2_ = aR1;
+    gradient.focus_.x = aX0;
+    gradient.focus_.y = aY0;
+    return gradient;
+  };
+
+  contextPrototype.drawImage = function (image, var_args) {
+    var dx, dy, dw, dh, sx, sy, sw, sh;
+    var w = image.width;
+    var h = image.height;
+
+    if (arguments.length == 3) {
+      dx = arguments[1];
+      dy = arguments[2];
+      sx = sy = 0;
+      sw = dw = w;
+      sh = dh = h;
+    } else if (arguments.length == 5) {
+      dx = arguments[1];
+      dy = arguments[2];
+      dw = arguments[3];
+      dh = arguments[4];
+      sx = sy = 0;
+      sw = w;
+      sh = h;
+    } else if (arguments.length == 9) {
+      sx = arguments[1];
+      sy = arguments[2];
+      sw = arguments[3];
+      sh = arguments[4];
+      dx = arguments[5];
+      dy = arguments[6];
+      dw = arguments[7];
+      dh = arguments[8];
+    } else {
+      throw "Invalid number of arguments";
+    }
+
+    var d = this.getCoords_(dx, dy);
+
+    var w2 = (sw / 2);
+    var h2 = (sh / 2);
+
+    var vmlStr = [];
+
+    // For some reason that I've now forgotten, using divs didn't work
+    vmlStr.push(' <g_vml_:group',
+                ' coordsize="100,100"',
+                ' coordorigin="0, 0"' ,
+                ' style="width:100px;height:100px;position:absolute;');
+
+    // If filters are necessary (rotation exists), create them
+    // filters are bog-slow, so only create them if abbsolutely necessary
+    // The following check doesn't account for skews (which don't exist
+    // in the canvas spec (yet) anyway.
+
+    if (this.m_[0][0] != 1 || this.m_[0][1]) {
+      var filter = [];
+
+      // Note the 12/21 reversal
+      filter.push("M11='", this.m_[0][0], "',",
+                  "M12='", this.m_[1][0], "',",
+                  "M21='", this.m_[0][1], "',",
+                  "M22='", this.m_[1][1], "',",
+                  "Dx='", d.x, "',",
+                  "Dy='", d.y, "'");
+
+      // Bounding box calculation (need to minimize displayed area so that
+      // filters don't waste time on unused pixels.
+      var max = d;
+      var c2 = this.getCoords_(dx+dw, dy);
+      var c3 = this.getCoords_(dx, dy+dh);
+      var c4 = this.getCoords_(dx+dw, dy+dh);
+
+      max.x = Math.max(max.x, c2.x, c3.x, c4.x);
+      max.y = Math.max(max.y, c2.y, c3.y, c4.y);
+
+      vmlStr.push(" padding:0 ", Math.floor(max.x), "px ", Math.floor(max.y),
+                  "px 0;filter:progid:DXImageTransform.Microsoft.Matrix(",
+                  filter.join(""), ", sizingmethod='clip');")
+    } else {
+      vmlStr.push(" top:", d.y, "px;left:", d.x, "px;")
+    }
+
+    vmlStr.push(' ">' ,
+                '<g_vml_:image src="', image.src, '"',
+                ' style="width:', dw, ';',
+                ' height:', dh, ';"',
+                ' cropleft="', sx / w, '"',
+                ' croptop="', sy / h, '"',
+                ' cropright="', (w - sx - sw) / w, '"',
+                ' cropbottom="', (h - sy - sh) / h, '"',
+                ' />',
+                '</g_vml_:group>');
+
+    this.element_.insertAdjacentHTML("BeforeEnd",
+                                    vmlStr.join(""));
+  };
+
+  contextPrototype.stroke = function(aFill) {
+    var lineStr = [];
+    var lineOpen = false;
+    var a = processStyle(aFill ? this.fillStyle : this.strokeStyle);
+    var color = a[0];
+    var opacity = a[1] * this.globalAlpha;
+
+    lineStr.push('<g_vml_:shape',
+                 ' fillcolor="', color, '"',
+                 ' filled="', Boolean(aFill), '"',
+                 ' style="position:absolute;width:10;height:10;"',
+                 ' coordorigin="0 0" coordsize="10 10"',
+                 ' stroked="', !aFill, '"',
+                 ' strokeweight="', this.lineWidth, '"',
+                 ' strokecolor="', color, '"',
+                 ' path="');
+
+    var newSeq = false;
+    var min = {x: null, y: null};
+    var max = {x: null, y: null};
+
+    for (var i = 0; i < this.currentPath_.length; i++) {
+      var p = this.currentPath_[i];
+
+      if (p.type == "moveTo") {
+        lineStr.push(" m ");
+        var c = this.getCoords_(p.x, p.y);
+        lineStr.push(Math.floor(c.x), ",", Math.floor(c.y));
+      } else if (p.type == "lineTo") {
+        lineStr.push(" l ");
+        var c = this.getCoords_(p.x, p.y);
+        lineStr.push(Math.floor(c.x), ",", Math.floor(c.y));
+      } else if (p.type == "close") {
+        lineStr.push(" x ");
+      } else if (p.type == "bezierCurveTo") {
+        lineStr.push(" c ");
+        var c = this.getCoords_(p.x, p.y);
+        var c1 = this.getCoords_(p.cp1x, p.cp1y);
+        var c2 = this.getCoords_(p.cp2x, p.cp2y);
+        lineStr.push(Math.floor(c1.x), ",", Math.floor(c1.y), ",",
+                     Math.floor(c2.x), ",", Math.floor(c2.y), ",",
+                     Math.floor(c.x), ",", Math.floor(c.y));
+      } else if (p.type == "arc") {
+        lineStr.push(" ar ");
+        var c  = this.getCoords_(p.x, p.y);
+        var cStart = this.getCoords_(p.xStart, p.yStart);
+        var cEnd = this.getCoords_(p.xEnd, p.yEnd);
+
+        // TODO: FIX (matricies (scale+rotation) now buggered this up)
+        //       VML arc also doesn't seem able to do rotated non-circular
+        //       arcs without parent grouping.
+        var absXScale = this.m_[0][0];
+        var absYScale = this.m_[1][1];
+
+        lineStr.push(Math.floor(c.x - absXScale * p.radius), ",",
+                     Math.floor(c.y - absYScale * p.radius), " ",
+                     Math.floor(c.x + absXScale * p.radius), ",",
+                     Math.floor(c.y + absYScale * p.radius), " ",
+                     Math.floor(cStart.x), ",", Math.floor(cStart.y), " ",
+                     Math.floor(cEnd.x), ",", Math.floor(cEnd.y));
+      }
+
+
+      // TODO: Following is broken for curves due to
+      //       move to proper paths.
+
+      // Figure out dimensions so we can do gradient fills
+      // properly
+      if(c) {
+        if (min.x == null || c.x < min.x) {
+          min.x = c.x;
+        }
+        if (max.x == null || c.x > max.x) {
+          max.x = c.x;
+        }
+        if (min.y == null || c.y < min.y) {
+          min.y = c.y;
+        }
+        if (max.y == null || c.y > max.y) {
+          max.y = c.y;
+        }
+      }
+    }
+    lineStr.push(' ">');
+
+    if (typeof this.fillStyle == "object") {
+      var focus = {x: "50%", y: "50%"};
+      var width = (max.x - min.x);
+      var height = (max.y - min.y);
+      var dimension = (width > height) ? width : height;
+
+      focus.x = Math.floor((this.fillStyle.focus_.x / width) * 100 + 50) + "%";
+      focus.y = Math.floor((this.fillStyle.focus_.y / height) * 100 + 50) + "%";
+
+      var colors = [];
+
+      // inside radius (%)
+      if (this.fillStyle.type_ == "gradientradial") {
+        var inside = (this.fillStyle.radius1_ / dimension * 100);
+
+        // percentage that outside radius exceeds inside radius
+        var expansion = (this.fillStyle.radius2_ / dimension * 100) - inside;
+      } else {
+        var inside = 0;
+        var expansion = 100;
+      }
+
+      var insidecolor = {offset: null, color: null};
+      var outsidecolor = {offset: null, color: null};
+
+      // We need to sort 'colors' by percentage, from 0 > 100 otherwise ie
+      // won't interpret it correctly
+      this.fillStyle.colors_.sort(function (cs1, cs2) {
+        return cs1.offset - cs2.offset;
+      });
+
+      for (var i = 0; i < this.fillStyle.colors_.length; i++) {
+        var fs = this.fillStyle.colors_[i];
+
+        colors.push( (fs.offset * expansion) + inside, "% ", fs.color, ",");
+
+        if (fs.offset > insidecolor.offset || insidecolor.offset == null) {
+          insidecolor.offset = fs.offset;
+          insidecolor.color = fs.color;
+        }
+
+        if (fs.offset < outsidecolor.offset || outsidecolor.offset == null) {
+          outsidecolor.offset = fs.offset;
+          outsidecolor.color = fs.color;
+        }
+      }
+      colors.pop();
+
+      lineStr.push('<g_vml_:fill',
+                   ' color="', outsidecolor.color, '"',
+                   ' color2="', insidecolor.color, '"',
+                   ' type="', this.fillStyle.type_, '"',
+                   ' focusposition="', focus.x, ', ', focus.y, '"',
+                   ' colors="', colors.join(""), '"',
+                   ' opacity="', opacity, '" />');
+    } else if (aFill) {
+      lineStr.push('<g_vml_:fill color="', color, '" opacity="', opacity, '" />');
+    } else {
+      lineStr.push(
+        '<g_vml_:stroke',
+        ' opacity="', opacity,'"',
+        ' joinstyle="', this.lineJoin, '"',
+        ' miterlimit="', this.miterLimit, '"',
+        ' endcap="', processLineCap(this.lineCap) ,'"',
+        ' weight="', this.lineWidth, 'px"',
+        ' color="', color,'" />'
+      );
+    }
+
+    lineStr.push("</g_vml_:shape>");
+
+    this.element_.insertAdjacentHTML("beforeEnd", lineStr.join(""));
+
+    this.currentPath_ = [];
+  };
+
+  contextPrototype.fill = function() {
+    this.stroke(true);
+  }
+
+  contextPrototype.closePath = function() {
+    this.currentPath_.push({type: "close"});
+  };
+
+  /**
+   * @private
+   */
+  contextPrototype.getCoords_ = function(aX, aY) {
+    return {
+      x: (aX * this.m_[0][0] + aY * this.m_[1][0] + this.m_[2][0]),
+      y: (aX * this.m_[0][1] + aY * this.m_[1][1] + this.m_[2][1])
+    }
+  };
+
+  contextPrototype.save = function() {
+    var o = {};
+    copyState(this, o);
+    this.aStack_.push(o);
+    this.mStack_.push(this.m_);
+    this.m_ = matrixMultiply(createMatrixIdentity(), this.m_);
+  };
+
+  contextPrototype.restore = function() {
+    copyState(this.aStack_.pop(), this);
+    this.m_ = this.mStack_.pop();
+  };
+
+  contextPrototype.translate = function(aX, aY) {
+    var m1 = [
+      [1,  0,  0],
+      [0,  1,  0],
+      [aX, aY, 1]
+    ];
+
+    this.m_ = matrixMultiply(m1, this.m_);
+  };
+
+  contextPrototype.rotate = function(aRot) {
+    var c = Math.cos(aRot);
+    var s = Math.sin(aRot);
+
+    var m1 = [
+      [c,  s, 0],
+      [-s, c, 0],
+      [0,  0, 1]
+    ];
+
+    this.m_ = matrixMultiply(m1, this.m_);
+  };
+
+  contextPrototype.scale = function(aX, aY) {
+    var m1 = [
+      [aX, 0,  0],
+      [0,  aY, 0],
+      [0,  0,  1]
+    ];
+
+    this.m_ = matrixMultiply(m1, this.m_);
+  };
+
+  /******** STUBS ********/
+  contextPrototype.clip = function() {
+    // TODO: Implement
+  };
+
+  contextPrototype.arcTo = function() {
+    // TODO: Implement
+  };
+
+  contextPrototype.createPattern = function() {
+    return new CanvasPattern_;
+  };
+
+  // Gradient / Pattern Stubs
+  function CanvasGradient_(aType) {
+    this.type_ = aType;
+    this.radius1_ = 0;
+    this.radius2_ = 0;
+    this.colors_ = [];
+    this.focus_ = {x: 0, y: 0};
+  }
+
+  CanvasGradient_.prototype.addColorStop = function(aOffset, aColor) {
+    aColor = processStyle(aColor);
+    this.colors_.push({offset: 1-aOffset, color: aColor});
+  };
+
+  function CanvasPattern_() {}
+
+  // set up externs
+  G_vmlCanvasManager = G_vmlCanvasManager_;
+  CanvasRenderingContext2D = CanvasRenderingContext2D_;
+  CanvasGradient = CanvasGradient_;
+  CanvasPattern = CanvasPattern_;
+
+})();
+
+} // if
+</script>
+
+<script type="text/javascript">
+/**
+ *	Copyright (c) 2005, 2006 Rafael Robayna
+ *
+ *	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *
+ *	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+ *
+ *	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ *
+ *	CanvasWidget is a base class that handles all mouse event listening for a canvas element, 
+ *	implements a widget event listener than you can use to trigger events remotely on widget 
+ *	state changes and encapsulates a few useful helper functions.
+ *
+ *  To create widget using CanvasWidget all you need to do is the following:
+ *
+ *	var YourWidget = CanvasWidget.extend({
+ *		widget_value_1: null,
+ *		constructor: function(canvasName, position) {
+ *			this.inherit(canvasName, position);
+ *		},
+ *		checkWidgetMouseEvent: function(e) {
+ *			var mousePos = this.getCanvasMousePos(e);
+ *			//interpret the mouse position 
+ *			this.drawWidget();
+ *		},
+ *		drawWidget: function() { 
+ *			//your canvas drawing code
+ *		}
+ *	});
+ *
+ *	//initialize an instance of your widget
+ *	var yourWidget = new YourWidget("canvas_name", {x: canvasPosX, y: canvasPosY});
+ *
+ *	//initialize an instance of your widget
+ *  yourWidget.addWidgetListener(function () {
+ *		//assign your widget value to something else
+ *		something = this.widget_value_1;
+ *	});
+ *
+ *
+ **/
+var CanvasWidget = Base.extend({
+	canvas: null,
+	context: null,
+	position: null,
+	widgetListeners: null,
+
+	/**
+	 * constuctor
+	 * 
+	 * @param {String} canvasName - the id of the corresponding canvas html element
+	 * @param {Array} position - the absolute position of the canvas html elemnt, {x:#,y:#}
+	 */
+	constructor: function(canvasElementID, position) {
+		this.canvas = document.getElementById(canvasElementID);
+		this.context = this.canvas.getContext('2d');
+		this.drawWidget();
+		this.initMouseListeners();
+		this.position = position;
+		this.widgetListeners = new Array();
+	},
+
+	/**
+	 * Initializes all the mouse listeners for the widget.
+	 */
+	initMouseListeners: function() {
+		this.mouseMoveTrigger = new Function();
+		if (document.all) {
+			this.canvas.attachEvent("onmousedown", this.mouseDownActionPerformed.bindAsEventListener(this));
+			this.canvas.attachEvent("onmousemove", this.mouseMoveActionPerformed.bindAsEventListener(this));
+			this.canvas.attachEvent("onmouseup", this.mouseUpActionPerformed.bindAsEventListener(this));
+			this.canvas.attachEvent("onmouseout", this.mouseUpActionPerformed.bindAsEventListener(this));
+		} else {
+			this.canvas.addEventListener("mousedown", this.mouseDownActionPerformed.bindAsEventListener(this), false);
+			this.canvas.addEventListener("mousemove", this.mouseMoveActionPerformed.bindAsEventListener(this), false);
+			this.canvas.addEventListener("mouseup", this.mouseUpActionPerformed.bindAsEventListener(this), false);
+			this.canvas.addEventListener("mouseout", this.mouseUpActionPerformed.bindAsEventListener(this), false);
+		}
+	},
+
+	/**
+	 * Triggered by any mousedown event on the widget. This function calls 
+	 * checkWidgetMouseEvent() and links the mousemove listener to checkWidgetEvent().
+	 *
+	 * Override this function if you want direct access to mousedown events.
+	 *
+	 * @param {Event} e
+	*/
+	mouseDownActionPerformed: function(e) {
+		this.mouseMoveTrigger = function(e) {
+			this.checkWidgetEvent(e);
+		}
+		this.checkWidgetEvent(e);
+	},
+	
+	/**
+	 * Triggered by any mousemove event on the widget. 
+	 *
+	 * Override this function if you want direct access to mousemove events.
+	 *
+	 * @param {Event} e
+	*/
+	mouseMoveActionPerformed: function(e) {
+		this.mouseMoveTrigger(e);
+	},
+	
+	/**
+	 * Triggered by any mouseup or mouseout event on the widget. 
+	 *
+	 * Override this function if you want direct access to mouseup events.
+	 *
+	 * @param {Event} e
+	*/
+	mouseUpActionPerformed: function(e) {
+		this.mouseMoveTrigger = new Function();
+	},
+
+	/**
+	 * Called by the mousedown and mousemove event listeners by default.
+	 *
+	 * This function must be implemented by any class extending CPWidget.
+	 *
+	 * @param {Event} e
+	*/
+	checkWidgetMouseEvent: function(e) {},
+	
+	/**
+	 * Draws the widget.
+	 *
+	 * This function must be implemented by any class extending CPWidget.
+	 *
+	*/
+	drawWidget: function() {},
+
+	/**
+	 * Used to add event listeners directly to the widget.  Listeners registered 
+	 * with this function are triggered every time the widget's state changes.
+	 *
+	 * @param {Function} eventListener
+	*/
+	addWidgetListener: function(eventListener) {
+		this.widgetListeners[this.widgetListeners.length] = eventListener;
+	},
+	
+	/**
+	 * Executs all functions registered as widgetListeners.  Should be called every time 
+	 * the widget's state changes.
+	*/
+	callWidgetListeners: function() {
+		if(this.widgetListeners.length != 0) {
+			for(var i=0; i < this.widgetListeners.length; i++) 
+				this.widgetListeners[i]();
+		}
+	},
+	
+	/**
+	 * Helper function to get the mouse position relative to the canvas position.
+	 *
+	 * @param {Event} e
+	*/
+	getCanvasMousePos: function(e) {
+		return {x: e.clientX - this.position.x, y: e.clientY - this.position.y};
+	}
+
+});
+
+var CanvasHelper = {
+	canvasExists: function(canvasName) {
+		var canvas = document.getElementById(canvasName);
+		return canvas.getContext('2d');
+	}
+}
+</script>
+
+
+<script type="text/javascript">
+/****************************************************************************************************
+	Copyright (c) 2005, 2006 Rafael Robayna
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	Additional Contributions by: Morris Johns
+****************************************************************************************************/
+
+var CanvasPainter = CanvasWidget.extend({
+	canvasInterface: "",
+	contextI: "",
+
+	canvasWidth: 0,
+	canvasHeight: 0,
+
+	startPos: {x:-1,y:-1},
+	curPos: {x:-1,y:-1},
+
+	drawColor: "rgb(0,0,0)",  //need to change to drawColor...
+
+	drawActions: null,
+	curDrawAction: 0,
+
+	cpMouseDownState: false,
+
+	/***
+		init(String canvasName, String canvasInterfaceName, Array position) 
+				initializes the canvas elements, adds event handlers and 
+				pulls height and width information from the canvas element
+
+		Parameters:
+			canvasName - the name of the bottom canvas element
+			canvasInterfaceName - the name of the top canvas element
+			canvasPos - the absolution position of both canvas elements, used for mouse tracking. 
+				ex. {x: 10, y: 10}
+	***/
+
+	constructor: function(canvasName, canvasInterfaceName, position) {
+		this.canvasInterface = document.getElementById(canvasInterfaceName);
+		this.contextI = this.canvasInterface.getContext("2d");
+		this.inherit(canvasName, position);
+		this.canvasHeight = this.canvas.getAttribute('height');
+		this.canvasWidth = this.canvas.getAttribute('width');
+		this.drawActions = [this.drawBrush, this.drawPencil, this.drawLine, this.drawRectangle, this.drawCircle, this.clearCanvas];
+	},
+
+	initMouseListeners: function() {
+		this.mouseMoveTrigger = new Function();
+		if(document.all) {
+			this.canvasInterface.attachEvent("onmousedown", this.mouseDownActionPerformed.bindAsEventListener(this));
+			this.canvasInterface.attachEvent("onmousemove", this.mouseMoveActionPerformed.bindAsEventListener(this));
+			this.canvasInterface.attachEvent("onmouseup", this.mouseUpActionPerformed.bindAsEventListener(this));
+			attachEvent("mouseup", this.mouseUpActionPerformed.bindAsEventListener(this));
+		} else {
+			this.canvasInterface.addEventListener("mousedown", this.mouseDownActionPerformed.bindAsEventListener(this), false);
+			this.canvasInterface.addEventListener("mousemove", this.mouseMoveActionPerformed.bindAsEventListener(this), false);
+			this.canvasInterface.addEventListener("mouseup", this.mouseUpActionPerformed.bindAsEventListener(this), false);
+			addEventListener("mouseup", this.mouseUpActionPerformed.bindAsEventListener(this), false);
+		}
+	},
+
+
+	mouseDownActionPerformed: function(e) {
+		this.startPos = this.getCanvasMousePos(e, this.position);
+		this.context.lineJoin = "round";
+		//Link mousemove event to the cpMouseMove Function through the wrapper
+		this.mouseMoveTrigger = function(e) {
+			this.cpMouseMove(e);
+		};
+    },
+	
+	cpMouseMove: function(e) {
+		this.setColor(this.drawColor);
+		this.curPos = this.getCanvasMousePos(e, this.position);
+
+		if(this.curDrawAction == 0) {
+			this.drawBrush(this.startPos, this.curPos, this.context);
+			this.callWidgetListeners();
+			this.startPos = this.curPos;
+		} else if(this.curDrawAction == 1) {
+			this.drawPencil(this.startPos, this.curPos, this.context);
+			this.callWidgetListeners();
+			this.startPos = this.curPos;
+		} else if(this.curDrawAction == 2) {
+			this.contextI.lineWidth = this.context.lineWidth;
+			this.contextI.clearRect(0,0,400,400);
+			this.drawLine(this.startPos, this.curPos, this.contextI);
+		} else if(this.curDrawAction == 3) {
+			this.contextI.clearRect(0,0,400,400);
+			this.drawRectangle(this.startPos, this.curPos, this.contextI);
+		} else if(this.curDrawAction == 4) {
+			this.contextI.clearRect(0,0,400,400);
+			this.drawCircle(this.startPos, this.curPos, this.contextI);
+		}
+		this.cpMouseDownState = true;
+	},
+
+	mouseUpActionPerformed: function(e) {
+		if(!this.cpMouseDownState) return;
+		this.curPos = this.getCanvasMousePos(e, this.position);
+		if(this.curDrawAction > 1) {
+			this.setColor(this.drawColor);
+			this.drawActions[this.curDrawAction](this.startPos, this.curPos, this.context, false);
+			this.clearInterface();
+			this.callWidgetListeners();
+		}
+		this.mouseMoveTrigger = new Function();
+		this.cpMouseDownState = false;
+	},
+
+	//Draw Functions
+	drawRectangle: function(pntFrom, pntTo, context) {
+		context.beginPath();
+		context.fillRect(pntFrom.x, pntFrom.y, pntTo.x - pntFrom.x, pntTo.y - pntFrom.y);
+		context.closePath();
+	},
+	drawCircle: function (pntFrom, pntTo, context) {
+		var centerX = Math.max(pntFrom.x,pntTo.x) - Math.abs(pntFrom.x - pntTo.x)/2;
+		var centerY = Math.max(pntFrom.y,pntTo.y) - Math.abs(pntFrom.y - pntTo.y)/2;
+		context.beginPath();
+		var distance = Math.sqrt(Math.pow(pntFrom.x - pntTo.x,2) + Math.pow(pntFrom.y - pntTo.y,2));
+		context.arc(centerX, centerY, distance/2,0,Math.PI*2 ,true);
+		context.fill();
+		context.closePath();
+	},
+	drawLine: function(pntFrom, pntTo, context) {
+		context.beginPath();
+		context.moveTo(pntFrom.x,pntFrom.y);
+		context.lineTo(pntTo.x,pntTo.y);
+		context.stroke();
+		context.closePath();
+	},
+	drawPencil: function(pntFrom, pntTo, context) {
+		context.save();
+		context.beginPath();
+		context.lineCap = "round";
+		context.moveTo(pntFrom.x,pntFrom.y);
+		context.lineTo(pntTo.x,pntTo.y);
+		context.stroke();
+		context.closePath();
+		context.restore();
+	},
+	drawBrush: function(pntFrom, pntTo, context) {
+		context.beginPath();
+		context.moveTo(pntFrom.x, pntFrom.y);
+		context.lineTo(pntTo.x, pntTo.y);
+		context.stroke();
+		context.closePath();
+	},
+	clearCanvas: function(context) {
+		canvasPainter.context.beginPath();
+		canvasPainter.context.clearRect(0,0,canvasPainter.canvasWidth,canvasPainter.canvasHeight);
+		canvasPainter.context.closePath();
+	},
+	clearInterface: function() {
+		this.contextI.beginPath();
+		this.contextI.clearRect(0,0,this.canvasWidth,this.canvasHeight);
+		this.contextI.closePath();
+	},
+	
+	//Setter Methods
+	setColor: function(color) {
+		this.context.fillStyle = color;
+		this.context.strokeStyle = color;
+		this.contextI.fillStyle = color;
+		this.contextI.strokeStyle = color;
+		this.drawColor = color;
+	},
+
+	setLineWidth: function(lineWidth) {
+		this.context.lineWidth = lineWidth;
+		this.contextI.lineWidth = lineWidth;
+	},
+	
+	//TODO: look into the event responce/calling for this function
+	setDrawAction: function(action) {
+		if(action == 5) {
+			var lastAction = this.curDrawAction;
+			this.curDrawAction = action;
+			this.callWidgetListeners();
+			this.curDrawAction = lastAction;
+			this.clearCanvas(this.context);
+		} else {
+			this.curDrawAction = action;
+			this.context.fillStyle = this.drawColor;
+			this.context.strokeStyle = this.drawColor;
+		}
+	},
+	
+	getDistance: function(pntFrom, pntTo) {
+		return Math.sqrt(Math.pow(pntFrom.x - pntTo.x,2) + Math.pow(pntFrom.y - pntTo.y,2));
+	}
+});
+</script>
+<script type="text/javascript">
+/*
+	Copyright (c) 2005, 2006 Rafael Robayna
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	Additional Contributions by: Morris Johns
+*/
+
+	/*
+		todo:
+		need to fix the error with drawing the function
+		need to write tutorial for using CanvasWidget
+
+		bugs: 
+		needs to be positioned absolutly and referenced absolutly - this is an issue with how mouse events are interpreted in all browsers
+
+		CanvasWidget is a base class that handles all event listening and triggering.  A person who wishes to write
+		a widget for Canvas can easily extend CanvasWidget and the few simple methods deling with drawing the widget.
+
+		Handles checking for the canvas element and the initalization of mouse event listeners.
+		to use, the drawWidget and widgetActionPerformed functions need to be extended.
+	*/
+
+	var ColorWidget = CanvasWidget.extend({
+		color_red: 0,
+		color_green: 0,
+		color_blue: 0,
+		color_alpha: 1,
+		colorString: "",
+		constructor: function(canvasName, position) {
+			this.inherit(canvasName, position);
+		},
+
+		drawWidget: function() {
+			this.context.clearRect(0,0,255,120);
+			var linGradRed = this.context.createLinearGradient(0,0,255,0);
+			linGradRed.addColorStop(0, 'rgba(0,'+this.color_green+','+this.color_blue+',1)');
+			linGradRed.addColorStop(1, 'rgba(255,'+this.color_green+','+this.color_blue+',1)');
+
+			var linGradGreen = this.context.createLinearGradient(0,0,255,0);
+			linGradGreen.addColorStop(0, 'rgba('+this.color_red+',0,'+this.color_blue+',1)');
+			linGradGreen.addColorStop(1, 'rgba('+this.color_red+',255,'+this.color_blue+',1)');
+
+			var linGradBlue= this.context.createLinearGradient(0,0,255,0);
+			linGradBlue.addColorStop(0, 'rgba('+this.color_red+','+this.color_green+',0,1)');
+			linGradBlue.addColorStop(1, 'rgba('+this.color_red+','+this.color_green+',255,1)');
+
+			var linGradAlpha= this.context.createLinearGradient(0,0,255,0);
+			linGradAlpha.addColorStop(0, 'rgba('+this.color_red+','+this.color_green+','+this.color_blue+',1)');
+			linGradAlpha.addColorStop(1, 'rgba('+this.color_red+','+this.color_green+','+this.color_blue+',0)');
+
+			this.context.fillStyle = linGradRed;
+			this.context.fillRect(0,0,255,20);
+			this.drawColorWidgetPointer(this.color_red, 20, this.context);
+
+			this.context.fillStyle = linGradGreen;
+			this.context.fillRect(0,20,255,20);
+			this.drawColorWidgetPointer(this.color_green, 40, this.context);
+
+			this.context.fillStyle = linGradBlue;
+			this.context.fillRect(0,40,255,20);
+			this.drawColorWidgetPointer(this.color_blue, 60, this.context);
+
+			this.context.fillStyle = linGradAlpha;
+			this.context.fillRect(0,60,255,20);
+			var alphaPosition = Math.floor((1-this.color_alpha)*255);
+			this.drawColorWidgetPointer(alphaPosition, 80, this.context);
+
+			this.context.fillStyle = "black";
+			this.context.fillRect(255, 0, 275, 40);
+
+			this.context.fillStyle = "white";
+			this.context.fillRect(255, 40, 275, 40);
+		},	
+			
+		drawColorWidgetPointer: function(xPos, yPos) {
+			this.context.fillStyle = "white";
+			this.context.beginPath();
+			this.context.moveTo(xPos - 6, yPos);
+			this.context.lineTo(xPos, yPos - 5);
+			this.context.lineTo(xPos + 6, yPos);
+			this.context.fill();
+			
+			this.context.strokeWidth = 1;
+			this.context.fillStyle = "black";
+
+			this.context.beginPath();
+			this.context.arc(xPos, yPos-7.5, 2.5,0,Math.PI*2 ,true);
+			this.context.fill();
+			this.context.closePath();
+		},
+		
+		checkWidgetEvent: function(e) {
+			var mousePos = this.getCanvasMousePos(e);
+
+			if(mousePos.x > 255) {
+				if(mousePos.y > 0 && mousePos.y <= 40) {
+					this.color_red = 0;
+					this.color_green = 0;
+					this.color_blue = 0;
+				} else {
+					this.color_red = 255;
+					this.color_green = 255;
+					this.color_blue = 255;
+				}
+			} else {
+				if(mousePos.y > 0 && mousePos.y <= 20) {
+					this.color_red = mousePos.x;
+				} else if(mousePos.y > 20 && mousePos.y <= 40) {
+					this.color_green = mousePos.x;
+				} else if(mousePos.y > 40 && mousePos.y <= 60) {
+					this.color_blue = mousePos.x;
+				} else {
+					this.color_alpha = 1 - mousePos.x/255;
+				}
+			}
+			
+			this.colorString = 'rgba('+this.color_red+','+this.color_green+','+this.color_blue+','+this.color_alpha+')';
+			this.drawWidget();
+			this.callWidgetListeners();
+		}
+	});
+
+	var LineWidthWidget = CanvasWidget.extend({
+		lineWidth: null,
+		
+		constructor: function(canvasName, lineWidth, position) {
+			this.lineWidth = lineWidth;
+			this.inherit(canvasName, position);
+		},
+
+		drawWidget: function() {
+			this.context.clearRect(0,0,275,120);
+
+			this.context.fillStyle = 'rgba(0,0,0,0.2)';
+			this.context.fillRect(0, 0, 275, 76);
+
+			this.context.strokeStyle = 'rgba(255,255,255,1)';
+			this.context.moveTo(1, 38);
+			this.context.lineTo(274, 38);
+			this.context.stroke();
+
+			this.context.strokeStyle = 'rgba(255,255,255,0.5)';
+			this.context.moveTo(1, 19);
+			this.context.lineTo(274, 19);
+			this.context.moveTo(1, 57);
+			this.context.lineTo(274, 57);
+			this.context.stroke();
+			
+			this.context.beginPath();
+			var linePosition = Math.floor((this.lineWidth*255)/76);
+			this.context.fillStyle = 'rgba(0,0,0,1)';
+			this.context.arc(linePosition, 38, this.lineWidth/2, 0, Math.PI*2, true);
+			this.context.fill();
+			this.context.closePath();
+		},
+	
+		checkWidgetEvent: function(e) {
+			var mousePos = this.getCanvasMousePos(e);
+
+			if(mousePos.x >= 0 && mousePos.x <= 255) {
+				this.lineWidth = Math.floor(((mousePos.x)*76)/255) + 1;
+				this.drawWidget();
+				this.callWidgetListeners();
+			}
+		}
+	});
+
+	var TransportWidget = CanvasWidget.extend({
+		timeline_shift: 5,
+		timeline_position: 5,
+		buttons: null,
+		lastTransportButton: null,
+		btnSize: {x: 30, y: 24},
+		btnShift: 32,
+		btnSpace: 4,
+		btnY: 20,
+		animator: null,
+
+		constructor: function(canvasName, position, animator) {
+			this.animator = animator;
+			this.inherit(canvasName, position);
+			this.animator.addAnimationEventListener(this.animationEventOcccured.bindAsEventListener(this));
+			this.animator.addTimeChangeEventListener(this.setTransportPosition.bindAsEventListener(this));
+		},
+
+		drawWidget: function(lineWidth) {
+			this.context.clearRect(0,0,255,120);
+			this.context.lineWidth = 1;
+			this.context.fillStyle = "#EEEEEE";
+			this.context.fillRect(0, 0, 274, 50);
+			
+			this.timeline_position = 5;
+			this.drawTransportPosition();
+
+			this.buttons = new Array();
+			
+			this.context.strokeStyle = "black";
+			this.context.fillStyle = "#DDDDDD";
+			this.context.lineWidth = 1;
+
+			for(i = 1; i <= 6; i++) {
+				this.drawButtonBorder(i);
+			}
+			this.context.fill();
+
+			this.drawRecordButton(true);
+			this.drawPlayButton(false);
+			this.drawStopButton(false);
+			this.drawRewindButton(false);
+			this.drawForwardStepButton(false);
+			this.drawForwardEndButton(false);
+			
+			this.lastTransportButton = 1;
+			
+			return transportWidget;
+		},
+
+		setButtonColor: function(action) {
+			if(action) this.context.fillStyle = "red";
+			else this.context.fillStyle = "black";
+		},
+
+		drawRecordButton: function(action) {
+			this.context.beginPath();
+			this.setButtonColor(action);
+			this.context.arc(this.buttons[1] + this.btnSize.x/2, this.btnY + this.btnSize.y/2, 8, 0, Math.PI*2, true)
+			this.context.fill();
+			this.context.closePath();
+		},
+		
+		drawPlayButton: function(action) {
+			this.context.beginPath();
+			this.setButtonColor(action);
+			this.context.moveTo(this.buttons[2] + 6, this.btnY + 4);
+			this.context.lineTo(this.buttons[2] + 6, this.btnY + this.btnSize.y - 4 );
+			this.context.lineTo(this.btnSize.x + this.buttons[2] - 6, this.btnSize.y/2 + this.btnY);
+			this.context.lineTo(this.buttons[2] + 6, this.btnY + 4);
+			this.context.fill();
+			this.context.closePath();
+		},
+
+		drawStopButton: function(action) {
+			this.context.beginPath();
+			this.setButtonColor(action);
+			this.context.fillRect(this.buttons[3] + this.btnSize.x/2 - 8, this.btnY + this.btnSize.y/2 - 8, 16, 16);
+			this.context.closePath();
+		},
+
+		drawRewindButton: function(action) {
+			this.context.beginPath();
+			this.setButtonColor(action);
+			this.context.fillRect(this.buttons[4] + this.btnSize.x/2 - 7, this.btnY + 4, 3, this.btnSize.y - 8);
+			this.context.moveTo(this.btnSize.x/2 + this.buttons[4] - 4, this.btnSize.y/2 + this.btnY);
+			this.context.lineTo(this.buttons[4] + this.btnSize.x - 8, this.btnY + 4 );
+			this.context.lineTo(this.buttons[4] + this.btnSize.x - 8, this.btnSize.y + this.btnY - 4);
+			this.context.lineTo(this.btnSize.x/2 + this.buttons[4] - 4, this.btnSize.y/2 + this.btnY);
+			this.context.fill();
+			this.context.closePath();
+		},
+
+		drawForwardStepButton: function(action) {
+			this.context.beginPath();
+			this.setButtonColor(action);
+			this.context.moveTo(this.buttons[5] + 4, this.btnY + 4);
+			this.context.lineTo(this.buttons[5] + 4, this.btnY + this.btnSize.y - 4 );
+			this.context.lineTo(this.btnSize.x/2 + this.buttons[5], this.btnSize.y/2 + this.btnY);
+			this.context.lineTo(this.buttons[5] + 4, this.btnY + 4);
+			this.context.moveTo(this.btnSize.x/2 + this.buttons[5], this.btnY + 4);
+			this.context.lineTo(this.buttons[5] + this.btnSize.x/2, this.btnY + this.btnSize.y - 4 );
+			this.context.lineTo(this.btnSize.x + this.buttons[5] - 4, this.btnSize.y/2 + this.btnY);
+			this.context.lineTo(this.btnSize.x/2 + this.buttons[5], this.btnY + 4);
+			this.context.fill();
+			this.context.closePath();
+		},
+
+		drawForwardEndButton: function(action) {
+			this.context.beginPath();
+			this.setButtonColor(action);
+			this.context.fillRect(this.buttons[6] + this.btnSize.x/2 + 4, this.btnY + 4, 3, this.btnSize.y - 8);
+			this.context.moveTo(this.buttons[6] + 8, this.btnY + 4);
+			this.context.lineTo(this.buttons[6] + 8, this.btnY + this.btnSize.y - 4 );
+			this.context.lineTo(this.btnSize.x/2 + this.buttons[6] + 4, this.btnSize.y/2 + this.btnY);
+			this.context.lineTo(this.buttons[6] + 8, this.btnY + 4);
+			this.context.fill();
+			this.context.closePath();
+		},
+
+		drawButtonBorder: function(buttonNum) {
+			var space = (buttonNum>1)?this.btnShift+(this.btnSpace*buttonNum):this.btnShift;
+			this.buttons[buttonNum] = space + (this.btnSize.x*(buttonNum - 1));
+			buttonNum--;
+			this.context.fillStyle = "#DDDDDD";
+			this.context.fillRect(space + (this.btnSize.x*buttonNum), this.btnY, this.btnSize.x, this.btnSize.y);
+			this.context.strokeRect(space + (this.btnSize.x*buttonNum), this.btnY, this.btnSize.x, this.btnSize.y);
+			this.context.fillStyle = "black";
+			this.context.fillRect(space + (this.btnSize.x*buttonNum), this.btnY - 1, this.btnSize.x, 1);
+			this.context.fillRect(space + (this.btnSize.x*buttonNum) - 1, this.btnY, 1, this.btnSize.y);
+		},
+
+		//can remove and replace this with something array
+		setButtonLook: function(index, action) {
+			switch (index){
+				case 1:
+					this.drawRecordButton(action);
+					break;
+				case 2:
+					this.drawPlayButton(action);
+					break;
+				case 3:
+					this.drawStopButton(action);
+					break;
+				case 4:
+					this.drawRewindButton(action);
+					break;
+				case 5:
+					this.drawForwardStepButton(action);
+					break;
+				case 6:
+					this.drawForwardEndButton(action);
+					break;
+			}
+		},
+
+		drawTransportPosition: function() {
+			this.context.fillStyle =  "#EEEEEE";
+			this.context.fillRect(this.timeline_shift, 7, 265, 5);
+			this.context.strokeStyle = "#666666";
+			this.context.strokeRect(this.timeline_shift, 8, 265, 3);
+			this.context.fillStyle =  "white";
+			this.context.fillRect(this.timeline_shift, 9, 265, 1);
+			this.context.fillStyle = "#AAAAAA";
+			this.context.fillRect(this.timeline_position, 7, 6, 4);
+			this.context.fillStyle = "#000000";
+		},
+	
+		checkWidgetEvent: function(e) {
+			if(this.animator.animation == null) return;
+
+			var mousePos = this.getCanvasMousePos(e);
+
+			if(mousePos.y < 20 && !this.animator.isEmpty()) {
+				this.timeline_position = mousePos.x;
+				this.animator.goToAnimationNode(Math.floor((this.animator.animation.last.t*this.timeline_position)/255));
+				this.drawTransportPosition();
+			} else if(e.type != "mousemove") {
+				if(mousePos.x > this.buttons[1] && mousePos.x < this.buttons[2]) {
+					this.animator.startRecordAnimation();
+					this.setActiveTransportButton(1);
+				} else if (mousePos.x > this.buttons[2] && mousePos.x < this.buttons[3]) {
+					this.animator.stopAnimation();
+					if(this.animator.playAnimation()) {
+						this.setActiveTransportButton(2);
+					}
+				} else if (mousePos.x > this.buttons[3] && mousePos.x < this.buttons[4]) {
+					this.animator.stopAnimation();
+					this.setActiveTransportButton(3); //not sure about removing this
+				} else if (mousePos.x > this.buttons[4] && mousePos.x < this.buttons[5]) {
+					this.animator.stopAnimation();
+					if(!this.animator.isEmpty()) {	
+						this.animator.goToAnimationNode(0);
+						this.setTransportPosition();
+					}
+				} else if (mousePos.x > this.buttons[5] && mousePos.x < this.buttons[6]) {
+					this.animator.stopAnimation();
+					if(!this.animator.isEmpty()) {
+						this.animator.goToAnimationNode(this.animator.curAnimationNode.n.t);
+						this.setTransportPosition();
+					}
+					this.setActiveTransportButton(3);
+				} else if (mousePos.x > this.buttons[6] && mousePos.x < (this.buttons[6] + 30)) {
+					this.animator.stopAnimation();
+					if(!this.animator.isEmpty()) {
+						this.setActiveTransportButton(6);
+						this.animator.goToAnimationNode(this.animator.animation.last.t);
+						this.setTransportPosition();
+						this.setActiveTransportButton(3);
+					}
+				}
+			}
+		},
+
+		setActiveTransportButton: function(button) {
+			this.drawButtonBorder(button);
+			this.setButtonLook(this.lastTransportButton, false);
+			this.setButtonLook(button, true);
+			this.lastTransportButton = button;
+		},
+		
+		animationEventOcccured: function(action) {
+			this.setActiveTransportButton(action);
+		},
+
+		setTransportPosition: function(e) {
+			var animationLength = this.animator.animation.last.t;
+			var time = this.animator.curAnimationNode.t;
+			this.timeline_position = Math.floor((time*260)/animationLength) + 5;
+			this.drawTransportPosition();
+		}
+	});
+</script>
+<script type="text/javascript">
+/*
+	Copyright (c) 2005, 2006 Rafael Robayna
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	Additional Contributions by: Morris Johns
+*/
+
+var CPAnimator = Base.extend({
+	RECORD: 0,
+	PLAY: 1,
+	STOP: 2,
+	animationControlState: null,
+	animationClockStart: 0,
+	animation: null,
+	curAnimationNode: null,
+	animationEventListeners: new Array(), 
+	timeChangeEventListeners: new Array(),
+	canvasPainter: null,
+	
+	constructor: function(canvasPainter) {
+		this.canvasPainter = canvasPainter;
+		this.newAnimation();
+		this.canvasPainter.addWidgetListener(this.recordAction.bindAsEventListener(this)); 
+	},
+	
+	newAnimation: function() {
+		this.stopAnimation();
+		this.animation = null;
+		this.startRecordAnimation();
+
+		var curDrawAction = canvasPainter.curDrawAction;
+		this.canvasPainter.curDrawAction = 5;
+		var firstNode = this.getAction();
+		this.canvasPainter.curDrawAction = curDrawAction;
+		this.animation.first = firstNode;
+		this.animation.last = firstNode;
+		this.curAnimationNode = firstNode;
+
+		this.triggerAnimationEvent(1);
+	},
+
+	startRecordAnimation: function() {
+		this.animationControlState = this.RECORD;
+		if(this.animation == null || this.curAnimationNode == null) {
+			this.canvasPainter.clearCanvas(canvasPainter.context);
+			this.animation = new Object();
+			this.curAnimationNode = null;
+			this.animationClockStart = new Date().getTime();
+		} else {
+			this.animationClockStart = new Date().getTime() + this.curAnimationNode.time;
+			this.playAnimation();
+		}
+	},
+
+	recordAction: function() {
+		if(this.animationControlState != this.RECORD) return;
+		var animationNode = this.getAction();
+		this.addNode(animationNode);
+	},
+
+	getAction: function() {
+		var animationNode = new Object()
+		animationNode.p = new Array(2);  //points array
+		animationNode.p[0] = this.canvasPainter.startPos;
+		animationNode.p[1] = this.canvasPainter.curPos;
+		animationNode.a = this.canvasPainter.curDrawAction; //action
+		animationNode.t = this.getAnimationTime(); //time
+		animationNode.c = this.canvasPainter.drawColor; //color
+		animationNode.w = this.canvasPainter.context.lineWidth; //width
+		animationNode.n = null; //next
+		return animationNode;
+	},
+	
+	//TODO: not sure need to check this bit
+	addNode: function(animationNode) {
+		if(this.animation.last == this.animation.first || animationNode.t >= this.animation.last.t) {
+			this.animation.last.n = animationNode;
+			this.animation.last = animationNode;
+		} else {
+			if(this.curAnimationNode.n == null) return;
+			while(this.curAnimationNode.n.t <= animationNode.t) {
+				this.curAnimationNode = this.curAnimationNode.n;
+				this.paintAnimationNode();
+			}
+			animationNode.n = this.curAnimationNode.n;
+			this.curAnimationNode.n = animationNode;
+		}
+		if(this.animation.first.n == animationNode) {
+			this.animationClockStart = new Date().getTime();
+			this.animation.first.t = 1;
+			animationNode.t = 1;
+		}
+		this.curAnimationNode = animationNode;
+	},
+
+	getAnimationTime: function() {
+		return new Date().getTime() - this.animationClockStart;
+	},
+
+	stopAnimation: function() {
+		if(this.animationControlState != this.STOP) {
+			this.animationControlState = this.STOP;
+			this.triggerAnimationEvent(3);
+		}
+	},
+
+	playAnimation: function() {
+		if(this.animation.first == this.animation.last) return false;
+		
+		if(this.animationControlState != this.RECORD)
+			this.animationControlState = this.PLAY;
+
+		if(this.curAnimationNode != null) {
+			if(this.curAnimationNode == this.animation.last && this.animationControlState != this.RECORD) {
+				this.curAnimationNode = this.animation.first;
+				this.canvasPainter.clearCanvas(canvasPainter.context);
+			}
+			this.animationClockStart = new Date().getTime() - this.curAnimationNode.t;
+			this.getAnimationNode();
+		} else {
+			this.animationClockStart = new Date().getTime();
+			this.curAnimationNode = this.animation.first;
+			this.getAnimationNode();
+		}
+		return true;
+	},
+
+	getAnimationNode: function() {
+		if(this.animationControlState == this.STOP) return;
+
+		if(this.curAnimationNode != this.animation.last) {
+			while(this.curAnimationNode != this.animation.last && this.curAnimationNode.n.t < this.getAnimationTime()) {
+				this.curAnimationNode = this.curAnimationNode.n;
+				this.paintAnimationNode();
+			}
+			this.triggerTimeChangeEvent();
+			window.setTimeout(this.getAnimationNode.bindAsEventListener(this), 5);
+		}	else if(this.animationControlState != this.RECORD) {
+			 this.stopAnimation();
+		}
+	},
+
+	paintAnimationNode:function() {
+		this.canvasPainter.context.save();
+		this.canvasPainter.context.fillStyle = this.curAnimationNode.c;
+		this.canvasPainter.context.strokeStyle = this.curAnimationNode.c;
+		this.canvasPainter.context.lineWidth = this.curAnimationNode.w;
+		this.canvasPainter.drawActions[this.curAnimationNode.a](this.curAnimationNode.p[0], this.curAnimationNode.p[1], canvasPainter.context, false);
+		this.canvasPainter.context.restore();
+	},
+
+	goToAnimationNode: function(time) {
+		this.stopAnimation();
+		if(this.curAnimationNode.t > time) {
+			this.canvasPainter.clearCanvas(canvasPainter.context);
+			this.curAnimationNode = this.animation.first;
+		}
+		while(this.curAnimationNode != null) {
+			this.paintAnimationNode();
+			if(this.curAnimationNode.n == null || this.curAnimationNode.n.t > time) {
+				break;
+			} else {
+				this.curAnimationNode = this.curAnimationNode.n;
+			}
+		}
+	},
+
+	isEmpty: function() {
+		return this.animation.first == this.animation.last;
+	},
+
+	// Event Handlers
+	triggerAnimationEvent: function(action) {
+		if(this.animationEventListeners.length != 0) {
+			for(var i=0; i < this.animationEventListeners.length; i++) {
+				this.animationEventListeners[i](action);
+			}
+		}
+	},
+
+	addAnimationEventListener: function(eventListener) {
+		this.animationEventListeners[this.animationEventListeners.length] = eventListener;
+	},
+
+	triggerTimeChangeEvent: function() {
+		if(this.timeChangeEventListeners.length != 0) {
+			for(var i=0; i < this.timeChangeEventListeners.length; i++) 
+				this.timeChangeEventListeners[i](); 
+		}
+	},
+
+	addTimeChangeEventListener: function(eventListener) {
+		this.timeChangeEventListeners[this.timeChangeEventListeners.length] = eventListener;
+	},
+
+	saveAnimation: function() {
+		return this.animation.toSource();
+	}
+});
+</script>
+
+<script  type="text/javascript">
+/*
+	Copyright (c) 2005, 2006 Rafael Robayna
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+	Additional Contributions by: Morris Johns
+*/
+var CPDrawing = Base.extend({
+	canvasPainter: null,  // a reference to the instance of the canvasPainter it is going to manipulate
+	drawing: null, // the drawing data
+	undoNodes: null, // undone drawing data nodes
+	lastClear: null,
+	
+	constructor: function(canvasPainter) {
+		this.canvasPainter = canvasPainter;
+		this.drawing = new Array();
+		this.undoNodes = new Array();
+		this.canvasPainter.addWidgetListener(this.recordAction.bindAsEventListener(this)); 
+	},
+
+	recordAction: function() {
+		if(this.drawing.length != 0 && this.canvasPainter.cpMouseDownState == true && (this.canvasPainter.curDrawAction == 0 || this.canvasPainter.curDrawAction == 1)) {
+			var currentNode = this.drawing[this.drawing.length - 1];
+			currentNode.p[currentNode.p.length] = this.canvasPainter.curPos;
+		} else {
+			if(this.canvasPainter.curDrawAction == 5) this.lastClear = this.drawing.length;
+			this.drawing.push(this.addNode());
+			this.undoNodes = new Array();
+		}
+	},
+
+	addNode: function() {
+		var drawingNode = new Object()
+		drawingNode.p = new Array(2);  //points array
+		drawingNode.p[0] = this.canvasPainter.startPos;
+		drawingNode.p[1] = this.canvasPainter.curPos;
+		drawingNode.a = this.canvasPainter.curDrawAction; //action
+		//color and line width should stored and recalled independantly for both this and animator
+		drawingNode.c = this.canvasPainter.drawColor; //color
+		drawingNode.w = this.canvasPainter.context.lineWidth; //width
+		return drawingNode;
+	},
+	
+	removeLastNode: function() {
+		if(this.drawing.length == 0) return;
+		this.undoNodes.push(this.drawing.pop());
+		this.paintDrawing();
+	},
+	
+	addLastRemovedNode: function() {
+		if(this.undoNodes.length == 0) return;
+		this.drawing.push(this.undoNodes.pop());
+		this.paintDrawing();
+	},
+
+	paintDrawing: function() {	
+		this.canvasPainter.clearCanvas(canvasPainter);
+		for(var i = 0; i < this.drawing.length; i++) {
+			var drawingNode = this.drawing[i];
+			this.canvasPainter.context.fillStyle = drawingNode.c;
+			this.canvasPainter.context.strokeStyle = drawingNode.c;
+			this.canvasPainter.context.lineWidth = drawingNode.w;
+
+			if(drawingNode.p.length == 2) {
+				this.canvasPainter.drawActions[drawingNode.a](drawingNode.p[0], drawingNode.p[1], this.canvasPainter.context, false);
+			} else {
+				for(var n = 0; n < (drawingNode.p.length - 1); n++) {
+					this.canvasPainter.drawActions[drawingNode.a](drawingNode.p[n], drawingNode.p[n+1], this.canvasPainter.context, false);
+				}
+			}
+		}
+	},
+
+	saveDrawing: function() {
+		if(this.lastClear != null) {
+			this.drawing = this.drawing.slice(this.lastClear);
+			this.lastClear = null;
+		}
+		this.optimizeForSave();
+		return this.drawing.toSource();
+	},
+
+	optimizeForSave: function() {
+		//need to implement this
+		for(var i = (this.drawing.length - 1); i >= 0; i--) {
+			printError("i : "+i);
+			if(this.drawing[i].a != 3) continue;
+			for(var n = 0; n < i; n++) {
+				printError("n : "+n);
+				if(this.drawing[n].a != 3) continue;
+				if(this.shapeContains(i, this.drawing[i], n, this.drawing[n])) {
+					this.drawing.splice(n, 1);
+					i--;
+				}	
+			}
+		}
+	},
+
+	shapeContains: function(i1, nodeAbove, i2, nodeBellow) {
+		//only checks for two non oblique rectanges right now
+		
+		var naA = nodeAbove.p[0];
+		var naB = {x: nodeAbove.p[1].x, y:nodeAbove.p[0].y};
+		var naC = nodeAbove.p[1];
+		
+		document.getElementById("errorArea").innerHTML += "point a at index " + i1 + " " + i2 + " " + naA.x + " " + naA.y + "<br>";
+		document.getElementById("errorArea").innerHTML += "point a at index " + i1 + " " + i2 + " " + naB.x + " " + naB.y + "<br>";
+		document.getElementById("errorArea").innerHTML += "point a at index " + i1 + " " + i2 + " " + naC.x + " " + naC.y + "<br><br>";
+		
+		var checkPoints = new Array(4);
+		checkPoints[0] = nodeBellow.p[0];
+		checkPoints[1] = {x: nodeBellow.p[1].x, y:nodeBellow.p[0].y};
+		checkPoints[2] = nodeBellow.p[1];
+		checkPoints[3] = {x: nodeBellow.p[0].x, y:nodeBellow.p[1].y};
+		
+		var validPoints = 0;
+		
+		for(var i = 0; i < 4; i++) {
+			if(checkPoints[i].x >= naA.x && checkPoints[i].x <= naB.x && checkPoints[i].y >= naA.y && checkPoints[i].y <= naC.y) {
+				validPoints++;
+			}
+		}
+
+		if(validPoints == 4) return true;
+		return false;
+	}
+});
+</script>
+
+<style type="text/css">
+	body {
+		font-family: arial, helvetica;
+		font-size: 11px;
+		margin: 0px;
+		padding: 0px;
+	}
+	h1 {
+		font-size: 14pt;
+		font-style: italic;
+		margin-bottom: 8px;
+	}
+	a {
+		text-decoration: none;
+		color: black;
+	}
+	canvas {
+		border: 1px solid #AAAAAA;
+	}
+	#canvas {
+		position: absolute;
+		left: 300px;
+		top: 60px;
+	}
+	#canvasInterface {
+		position: absolute;
+		left: 300px;
+		top: 60px;
+	}
+	
+	#map
+	{
+		position: absolute;
+		left: 300px;
+		top: 10px;
+	} 
+	
+	#noCanvas {
+		position: absolute;
+		left: 90px;
+		top: 100px;
+		width: 400px;
+		height: 400px;
+		font-size: 16px;
+	}
+	#chooserWidgets {
+		display: block;
+		position: absolute;
+		left: 0px;
+		width: 300px;
+		top: 60px;
+		background-color : #FFFFFF;
+	}
+	#chooserWidgets canvas {
+		margin-bottom: 10px;
+	}
+	#controls {
+		position: absolute;
+		top: 10px;
+		left: 8px;
+		font-size: 12px;
+		width: 300px;
+	}
+	.ctr_btn {
+		overflow: hidden;
+		float : left;
+		width: 65px;
+		height: 20px;
+		cursor: pointer; 
+		padding-left: 3px; 
+		margin-bottom: 2px;
+		border:1px solid #AAAAAA; 
+		background:#FFFFFF;
+	}
+	#cpainterInfo {
+		position: absolute;
+		left: 500px;
+		top: 340px;
+	}
+	#errorArea {
+		position: absolute;
+		width: 200px;
+		left: 800px;
+	}
+</style>
+<script type="text/javascript">
+	var canvasPainter;
+	var saveDrawing;
+	var canvasAnimator;
+	var colorWidget;
+	var lineWidthWidget;
+	var transportWidget;
+
+	function doOnLoad() {	
+		if(CanvasHelper.canvasExists("canvas")) {
+			canvasPainter = new CanvasPainter("canvas", "canvasInterface", {x: 300, y: 60});
+			//init save objects
+			//saveDrawing = new CPDrawing(canvasPainter);
+			canvasAnimator = new CPAnimator(canvasPainter);
+
+			//init widgets
+			colorWidget = new ColorWidget('colorChooser', {x: 0, y: 60});
+			colorWidget.addWidgetListener(function() {
+				canvasPainter.setColor(colorWidget.colorString);
+			});
+
+			lineWidthWidget = new LineWidthWidget('lineWidthChooser', 10, {x: 0, y: 170});
+			canvasPainter.setLineWidth(10);
+			lineWidthWidget.addWidgetListener(function() {
+				canvasPainter.setLineWidth(lineWidthWidget.lineWidth);
+			});
+			
+			transportWidget = new TransportWidget('transportWidget', {x: 0, y: 240}, canvasAnimator);
+		} else {
+			var ffb = new Image();
+			ffb.src = "http://www.mozilla.org/products/firefox/buttons/getfirefox_large2.png";
+			document.getElementById("controls").style.display = "none";
+			document.getElementById("noCanvas").style.display = "block";
+			document.getElementById("ffbutton").src = ffb.src;
+			document.getElementById("cpainterInfo").style.display = "none";
+		}
+	}
+
+	function printError(error) {
+		document.getElementById("errorArea").innerHTML += error +"<br>";
+	}
+
+		// used by the dhtml buttons
+	function setControlLook(id, color) {
+		if(id != canvasPainter.curDrawAction)
+		document.getElementById("btn_"+id).style.background = color;
+	}
+
+	function setCPDrawAction(action) {
+		document.getElementById("btn_"+canvasPainter.curDrawAction).style.background = "#FFFFFF";
+		document.getElementById("btn_"+action).style.background = "#CCCCCC";
+		canvasPainter.setDrawAction(action);
+	}
+</script><link href="index_files/highlighter.css" type="text/css" rel="stylesheet">
+
+</head>
+
+<body>
+	
+	<div id = "map" style = "width : 800; height : 550"></div>
+	<canvas id="canvas" width="800" height="500"></canvas>
+	<canvas id="canvasInterface" width="800" height="500"></canvas>
+	<script>
+		
+	</script>
+	
+	<div>
+		<div id="controls">
+			<div class="ctr_btn" id="btn_0" style="background: rgb(255, 255, 255) none repeat scroll 0%; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;" onclick="setCPDrawAction(0)" onmousedown="setControlLook(0, '#CCCCCC')" onmouseover="setControlLook(0, '#EEEEEE')" onmouseout="setControlLook(0, '#FFFFFF')">brush</div> 
+			<div style="background: rgb(255, 255, 255) none repeat scroll 0%; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;" class="ctr_btn" id="btn_1" onclick="setCPDrawAction(1)" onmousedown="setControlLook(1, '#CCCCCC')" onmouseover="setControlLook(1, '#EEEEEE')" onmouseout="setControlLook(1, '#FFFFFF')">brush 2</div> 
+			<div class="ctr_btn" id="btn_2" onclick="setCPDrawAction(2)" onmousedown="setControlLook(2, '#CCCCCC')" onmouseover="setControlLook(2, '#EEEEEE')" onmouseout="setControlLook(2, '#FFFFFF')">line</div> 
+			<div class="ctr_btn" id="btn_3" onclick="setCPDrawAction(3)" onmousedown="setControlLook(3, '#CCCCCC')" onmouseover="setControlLook(3, '#EEEEEE')" onmouseout="setControlLook(3, '#FFFFFF')">rectangle</div> 
+			<div style="background: rgb(255, 255, 255) none repeat scroll 0%; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;" class="ctr_btn" id="btn_4" onclick="setCPDrawAction(4)" onmousedown="setControlLook(4, '#CCCCCC')" onmouseover="setControlLook(4, '#EEEEEE')" onmouseout="setControlLook(4, '#FFFFFF')">circle</div> 
+			<div style="background: rgb(255, 255, 255) none repeat scroll 0%; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;" class="ctr_btn" id="btn_5" onclick="setCPDrawAction(5)" onmousedown="setControlLook(5, '#CCCCCC')" onmouseover="setControlLook(5, '#EEEEEE')" onmouseout="setControlLook(5, '#FFFFFF')">clear</div> 
+			<br>
+			<div style="background: rgb(255, 255, 255) none repeat scroll 0%; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;" class="ctr_btn" id="btn_9" onclick="canvasAnimator.newAnimation();" onmousedown="setControlLook(9, '#CCCCCC')" onmouseover="setControlLook(9, '#EEEEEE')" onmouseout="setControlLook(9, '#FFFFFF')">new</div> 
+			<!--
+			<div class="ctr_btn" id="btn_10" onclick="saveDrawing.removeLastNode();" onMouseDown="setControlLook(10, '#CCCCCC')" onMouseOver="setControlLook(10, '#EEEEEE')" onMouseOut="setControlLook(10, '#FFFFFF')">undo</div> 
+			<div class="ctr_btn" id="btn_13" onclick="saveDrawing.addLastRemovedNode();" onMouseDown="setControlLook(13, '#CCCCCC')" onMouseOver="setControlLook(13, '#EEEEEE')" onMouseOut="setControlLook(13, '#FFFFFF')">redo</div> 
+			<div class="ctr_btn" id="btn_11" onclick="saveDrawing.paintDrawing();" onMouseDown="setControlLook(11, '#CCCCCC')" onMouseOver="setControlLook(11, '#EEEEEE')" onMouseOut="setControlLook(11, '#FFFFFF')">repaint</div> 
+			<div class="ctr_btn" id="btn_12" onclick="saveDrawing.saveDrawing();" onMouseDown="setControlLook(12, '#CCCCCC')" onMouseOver="setControlLook(12, '#EEEEEE')" onMouseOut="setControlLook(12, '#FFFFFF')">print</div> 
+			-->
+		</div>
+		
+		<div id="chooserWidgets">
+			<canvas id="colorChooser" width="275" height="80"></canvas>
+			<canvas id="lineWidthChooser" width="275" height="76"></canvas>
+			<canvas id="transportWidget" width="275" height="50"></canvas>
+		</div>
+		<div id="errorArea"></div>
+	</div>
+</body>
+<script  type="text/javascript">
+	doOnLoad();
+</script>
+<script type="text/javascript" src="http://api.maps.yahoo.com/ajaxymap?v=3.7&appid=JjHC7tfV34EGK6YT7kSn4uCqJCsiW1lsLVGRzGKtYegCDRkO2Gv6MenPmwA48TJo "> </script>
+<script type="text/javascript">
+/**
+ * Displays the map in the background
+ */
+var Mapper = 
+{
+	init : function()
+	{
+		this.map = new YMap(document.getElementById('map'));
+		this.map.addTypeControl();
+		this.map.addZoomLong();
+		this.map.addPanControl();
+		this.map.setMapType(YAHOO_MAP_SAT);
+		this.map.drawZoomAndCenter("Bangalore", 3);
+	}
+}
+
+Mapper.init();
+</script>
+
+</html>

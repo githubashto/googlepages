@@ -1,0 +1,23 @@
+.loader
+{
+    background-color: YELLOW;
+    font-weight: bold;
+    color: black;
+} .flash-hilite
+{
+    z-index: 999999;
+    position: absolute;
+    background-color: red;
+    opacity: 0.3;
+} .move-handler
+{
+    z-index: 999999;
+    position: absolute;
+    background-color: #ABCEDF;
+    cursor: move;
+    border: BLUE SOLID 1px;
+} .flash-placeholder
+{
+    z-index: 1;
+    background-color: WHITE;
+}
