@@ -1,0 +1,1 @@
+Pages.google.com does not allow hosting files like it used to, so moving all the content to svn. This is also linked to Bespin so that it can all be edited easily
